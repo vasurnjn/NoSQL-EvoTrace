@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ page_title ~ " - " if page_title else "" }}{{ app_title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <!-- Global Navigation Header -->
+  <header class="navbar">
+    <div class="brand-section">
+      <a href="{{ url_for('overview.index') }}" class="brand-title">NoSQL-EvoTrace</a>
+    </div>
+
+    <nav class="nav-container" aria-label="Main Navigation">
+      <ul class="nav-links">
+        <li><a href="{{ url_for('overview.index') }}" class="{{ 'active' if request.blueprint == 'overview' else '' }}">Overview</a></li>
+        <li><a href="{{ url_for('schema.index') }}" class="{{ 'active' if request.blueprint == 'schema' else '' }}">Schema Explorer</a></li>
+        <li><a href="{{ url_for('evolution.index') }}" class="{{ 'active' if request.blueprint == 'evolution' else '' }}">Evolution Workspace</a></li>
+        <li><a href="{{ url_for('provenance.index') }}" class="{{ 'active' if request.blueprint == 'provenance' else '' }}">Provenance</a></li>
+        <li><a href="{{ url_for('impact.index') }}" class="{{ 'active' if request.blueprint == 'impact' else '' }}">Impact Analysis</a></li>
+        <li><a href="{{ url_for('recovery.index') }}" class="{{ 'active' if request.blueprint == 'recovery' else '' }}">Recovery Center</a></li>
+        <li><a href="{{ url_for('queries.index') }}" class="{{ 'active' if request.blueprint == 'queries' else '' }}">Query Registry</a></li>
+        <li><a href="{{ url_for('experiments.index') }}" class="{{ 'active' if request.blueprint == 'experiments' else '' }}">Experiments</a></li>
+        <li><a href="{{ url_for('documentation.index') }}" class="{{ 'active' if request.blueprint == 'documentation' else '' }}">Documentation</a></li>
+      </ul>
+    </nav>
+
+    <div class="nav-status">
+      {% if connection_status.connected %}
+        {% if connection_status.is_real_mongo %}
+          <span class="status-pill status-connected" title="MongoDB Community Server v{{ connection_status.server_version }} @ {{ connection_status.uri }} (DB: {{ connection_status.database }})">
+            <span class="status-dot"></span> MongoDB Community Server (Live)
+          </span>
+        {% else %}
+          <span class="status-pill status-mock" title="In-Memory Test Engine (Database: {{ connection_status.database }})">
+            <span class="status-dot"></span> mongomock (Testing Only)
+          </span>
+        {% endif %}
+      {% else %}
+        <span class="status-pill status-disconnected" title="{{ connection_status.error }}">
+          <span class="status-dot"></span> Disconnected
+        </span>
+      {% endif %}
+    </div>
+  </header>
+
+  <!-- Main Content Container -->
+  <main class="main-container">
+    <!-- Flash Messages Banner -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-container" role="alert" aria-live="polite">
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category }}">
+              <span>{{ message }}</span>
+              <span class="alert-dismiss" title="Dismiss message">&times;</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <!-- Error Block Fallback -->
+    {% if error_title %}
+      <div class="panel" style="border-top: 4px solid var(--danger);">
+        <div class="panel-body" style="text-align: center; padding: 3rem 1rem;">
+          <h2 style="color: var(--danger); font-size: 1.35rem; margin-bottom: 0.5rem;">{{ error_title }}</h2>
+          <p style="color: var(--text-muted); margin-bottom: 1.5rem; font-size: 0.9rem;">{{ error_message }}</p>
+          <a href="{{ url_for('overview.index') }}" class="btn btn-primary">Return to Overview</a>
+        </div>
+      </div>
+    {% else %}
+      {% block content %}{% endblock %}
+    {% endif %}
+  </main>
+
+  <!-- Clean Minimal Footer -->
+  <footer class="footer">
+    <div class="footer-content">
+      <strong>NoSQL-EvoTrace</strong> &bull; A Provenance-Aware Framework for Impact Analysis and Recovery of Evolving NoSQL Documents.
+    </div>
+  </footer>
+
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
