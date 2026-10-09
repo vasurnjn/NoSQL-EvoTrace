@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+{% set page_title = "Overview" %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">System Overview</h1>
+    <p class="page-subtitle">Real-time document counts, schema version profiles, and provenance audit activity.</p>
+  </div>
+  <div class="header-actions">
+    <!-- Collection Selector Form -->
+    <form method="GET" action="{{ url_for('overview.index') }}" style="display: inline-flex; gap: 0.5rem; align-items: center;">
+      <input type="hidden" name="scope" value="{{ activity_scope }}">
+      <label for="colSelect" class="form-label" style="margin: 0; white-space: nowrap; font-size: 0.8rem; color: var(--text-muted);">Target Collection:</label>
+      <select id="colSelect" name="collection" class="form-select" onchange="this.form.submit()" style="width: auto; padding: 0.35rem 0.65rem;">
+        {% set has_app_cols = false %}
+        {% set has_eval_cols = false %}
+        {% for col in user_collections %}
+          {% if col.startswith('eval_') %}
+            {% set has_eval_cols = true %}
+          {% else %}
+            {% set has_app_cols = true %}
+          {% endif %}
+        {% endfor %}
+
+        {% if has_eval_cols %}
+          <optgroup label="Application Collections">
+            {% for col in user_collections if not col.startswith('eval_') %}
+              <option value="{{ col }}" {{ 'selected' if col == selected_collection else '' }}>{{ col }}</option>
+            {% endfor %}
+          </optgroup>
+          <optgroup label="Benchmark Evaluations (eval_*)">
+            {% for col in user_collections if col.startswith('eval_') %}
+              <option value="{{ col }}" {{ 'selected' if col == selected_collection else '' }}>{{ col }}</option>
+            {% endfor %}
+          </optgroup>
+        {% else %}
+          {% for col in user_collections %}
+            <option value="{{ col }}" {{ 'selected' if col == selected_collection else '' }}>{{ col }}</option>
+          {% endfor %}
+        {% endif %}
+      </select>
+    </form>
+
+    <!-- Seed Dataset Button -->
+    <form method="POST" action="{{ url_for('overview.seed_demo') }}" onsubmit="return confirm('Reset and seed demo_customers with deterministic synthetic data? Any existing demo documents will be refreshed.');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="collection" value="demo_customers">
+      <button type="submit" class="btn btn-secondary btn-sm" title="Seeds or resets demo_customers with synthetic data without touching other collections" {{ 'disabled' if not connection_status.connected else '' }}>
+        🌱 Reset Demo Data
+      </button>
+    </form>
+  </div>
+</div>
+
+{% if not connection_status.connected %}
+  <div class="alert alert-error" style="margin-bottom: 1.5rem;">
+    <strong>⚠️ Database Disconnected:</strong> Cannot connect to MongoDB Community Server at <code>{{ connection_status.uri }}</code> (Database: <code>{{ connection_status.database }}</code>). 
+    Please start the MongoDB Community Server service (<code>net start MongoDB</code> on Windows) and refresh the page.
+  </div>
+{% endif %}
+
+<!-- Global System Repository Summary Strip -->
+<div class="summary-strip">
+  <div class="summary-strip-items">
+    <div class="summary-item">
+      <span class="summary-item-label">Collections:</span>
+      <span class="summary-item-value">{{ global_collections_count }}</span>
+    </div>
+    <div class="summary-item">
+      <span class="summary-item-label">Total Operations:</span>
+      <span class="summary-item-value">{{ global_ops_count }}</span>
+    </div>
+    <div class="summary-item">
+      <span class="summary-item-label">Total Provenance:</span>
+      <span class="summary-item-value">{{ global_prov_count }}</span>
+    </div>
+    <div class="summary-item">
+      <span class="summary-item-label">Registered Queries:</span>
+      <span class="summary-item-value">{{ global_query_count }}</span>
+    </div>
+  </div>
+  <div>
+    <span class="badge {{ 'badge-success' if connection_status.is_real_mongo else 'badge-warning' }}">
+      Backend: {{ 'MongoDB Live' if connection_status.is_real_mongo else 'mongomock (In-Memory)' }}
+    </span>
+  </div>
+</div>
+
+<!-- Primary Metric Cards for Selected Collection -->
+<div style="margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
+  <span style="font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">
+    Collection Profile: <code style="text-transform: none;">{{ selected_collection }}</code>
+  </span>
+</div>
+
+<div class="grid-cards">
+  <div class="card">
+    <div class="card-title">Collection Documents</div>
+    <div class="card-value">{{ doc_count }}</div>
+    <div class="card-hint">Total persisted documents</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Schema Fingerprint</div>
+    <div class="card-value" style="font-size: 1.05rem; word-break: break-all;">
+      {% if latest_snapshot %}
+        <code>{{ latest_snapshot.schema_fingerprint[:16] }}…</code>
+      {% else %}
+        <span class="badge badge-muted">Not Inferred</span>
+      {% endif %}
+    </div>
+    <div class="card-hint">
+      Snapshot: {{ latest_snapshot.snapshot_id if latest_snapshot else "None" }}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Collection Operations</div>
+    <div class="card-value" style="color: var(--primary);">{{ col_ops_count }}</div>
+    <div class="card-hint">Evolutions on <code>{{ selected_collection }}</code></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Collection Provenance</div>
+    <div class="card-value" style="color: var(--success);">{{ col_prov_count }}</div>
+    <div class="card-hint">Audit events for <code>{{ selected_collection }}</code></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Query Dependencies</div>
+    <div class="card-value">{{ col_query_count }}</div>
+    <div class="card-hint">Queries registered on this collection</div>
+  </div>
+</div>
+
+<!-- Recent Evolution Activity -->
+<div class="panel">
+  <div class="panel-header">
+    <div style="display: flex; align-items: center; gap: 0.75rem;">
+      <span class="panel-title">Recent Evolution Activity</span>
+      <div class="filter-tabs">
+        <a href="{{ url_for('overview.index', collection=selected_collection, scope='collection') }}" class="filter-tab {{ 'active' if activity_scope == 'collection' else '' }}">
+          {{ selected_collection }} ({{ col_ops_count }})
+        </a>
+        <a href="{{ url_for('overview.index', collection=selected_collection, scope='all') }}" class="filter-tab {{ 'active' if activity_scope == 'all' else '' }}">
+          All Collections ({{ global_ops_count }})
+        </a>
+      </div>
+    </div>
+    <a href="{{ url_for('provenance.index', collection=(selected_collection if activity_scope == 'collection' else '')) }}" class="btn btn-outline btn-sm">
+      View in Provenance &rarr;
+    </a>
+  </div>
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Operation ID</th>
+          <th>Type</th>
+          <th>Collection</th>
+          <th>Path Mutation</th>
+          <th>Timestamp</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if recent_ops %}
+          {% for op in recent_ops %}
+            <tr>
+              <td><code class="mono-id" title="{{ op.operation_id }}">{{ op.operation_id }}</code></td>
+              <td>
+                <span class="badge badge-primary">{{ op.operation_type }}</span>
+              </td>
+              <td><code>{{ op.collection_name }}</code></td>
+              <td style="font-size: 0.78rem;">
+                {% if op.source_path %}<code>{{ op.source_path }}</code>{% endif %}
+                {% if op.source_path and op.destination_path %} &rarr; {% endif %}
+                {% if op.destination_path %}<code>{{ op.destination_path }}</code>{% endif %}
+                {% if not op.source_path and not op.destination_path %}<span style="color: var(--text-light);">&mdash;</span>{% endif %}
+              </td>
+              <td style="font-size: 0.75rem; color: var(--text-muted);">{{ op.created_at[:19] | replace("T", " ") }}</td>
+              <td>
+                {% if op.status == "EXECUTED" %}
+                  <span class="badge badge-success">EXECUTED</span>
+                {% elif op.status == "RECOVERED" %}
+                  <span class="badge badge-warning">RECOVERED</span>
+                {% elif op.status == "FAILED" %}
+                  <span class="badge badge-danger">FAILED</span>
+                {% else %}
+                  <span class="badge badge-muted">{{ op.status }}</span>
+                {% endif %}
+              </td>
+              <td>
+                <a href="{{ url_for('provenance.detail', operation_id=op.operation_id) }}" class="btn btn-outline btn-sm">Inspect</a>
+              </td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2.25rem 1rem;">
+              {% if activity_scope == 'collection' %}
+                No evolution operations recorded yet for collection <code>{{ selected_collection }}</code>.<br>
+                <span style="font-size: 0.78rem;">Use the <a href="{{ url_for('evolution.index', collection=selected_collection) }}">Evolution Workspace</a> to apply a transformation, or switch to <strong>All Collections</strong> above.</span>
+              {% else %}
+                No evolution operations recorded across any collections. Use the <a href="{{ url_for('evolution.index') }}">Evolution Workspace</a> to perform a transformation.
+              {% endif %}
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Database Runtime & Capabilities -->
+<div class="panel">
+  <div class="panel-header">
+    <span class="panel-title">Database Runtime & Capabilities</span>
+    {% if connection_status.connected and connection_status.is_real_mongo %}
+      <span class="badge badge-success">MongoDB Community Server (Live)</span>
+    {% elif connection_status.connected and connection_status.is_mock %}
+      <span class="badge badge-warning">mongomock (Testing Only)</span>
+    {% else %}
+      <span class="badge badge-danger">Disconnected</span>
+    {% endif %}
+  </div>
+  <div class="panel-body">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; font-size: 0.8125rem;">
+      <div>
+        <span style="color: var(--text-muted); font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">Backend Engine</span><br>
+        <strong>{{ connection_status.backend_name }}</strong>
+      </div>
+      <div>
+        <span style="color: var(--text-muted); font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">Target Database</span><br>
+        <code>{{ connection_status.database }}</code>
+      </div>
+      <div>
+        <span style="color: var(--text-muted); font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">Connection URI</span><br>
+        <code>{{ connection_status.uri }}</code>
+      </div>
+      <div>
+        <span style="color: var(--text-muted); font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">Server Version</span><br>
+        <code>{{ connection_status.server_version }}</code>
+      </div>
+      <div>
+        <span style="color: var(--text-muted); font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">Transaction Model</span><br>
+        {% if connection_status.supports_transactions %}
+          <span class="badge badge-success">Multi-Doc ACID (ReplicaSet)</span>
+        {% else %}
+          <span class="badge badge-muted">Operation Journal & Compensating Rollback</span>
+        {% endif %}
+      </div>
+    </div>
+    {% if not connection_status.connected %}
+      <div class="alert alert-error" style="margin-top: 1rem;">
+        <strong>Database Connection Error:</strong> {{ connection_status.error }}<br>
+        <span style="font-size: 0.8rem; margin-top: 0.25rem; display: inline-block;">
+          Ensure MongoDB Community Server service (<code>mongod</code>) is running at <code>{{ connection_status.uri }}</code>.
+        </span>
+      </div>
+    {% elif connection_status.is_mock %}
+      <div class="info-callout" style="margin-top: 1rem;">
+        <strong>Testing Mode:</strong> The application is currently connected to the in-memory <code>mongomock</code> engine (used for automated test isolation).
+        For live demonstration with MongoDB Community Server, ensure <code>ALLOW_MOCK_FALLBACK=false</code> and start the local MongoDB service.
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
