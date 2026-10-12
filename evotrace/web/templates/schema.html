@@ -1,0 +1,273 @@
+{% extends "base.html" %}
+{% set page_title = "Schema Explorer" %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Schema Explorer</h1>
+    <p class="page-subtitle">Inspect observed structural profiles, field path distributions, types, presence rates, and snapshot diffs.</p>
+  </div>
+  <div class="header-actions">
+    <!-- Collection Selector Form -->
+    <form method="GET" action="{{ url_for('schema.index') }}" style="display: inline-flex; gap: 0.5rem; align-items: center;">
+      <label for="colSelect" class="form-label" style="margin: 0; white-space: nowrap; font-size: 0.8rem; color: var(--text-muted);">Collection:</label>
+      <select id="colSelect" name="collection" class="form-select" onchange="this.form.submit()" style="width: auto; padding: 0.35rem 0.65rem;">
+        {% set has_app_cols = false %}
+        {% set has_eval_cols = false %}
+        {% for col in user_collections %}
+          {% if col.startswith('eval_') %}
+            {% set has_eval_cols = true %}
+          {% else %}
+            {% set has_app_cols = true %}
+          {% endif %}
+        {% endfor %}
+
+        {% if has_eval_cols %}
+          <optgroup label="Application Collections">
+            {% for col in user_collections if not col.startswith('eval_') %}
+              <option value="{{ col }}" {{ 'selected' if col == selected_collection else '' }}>{{ col }}</option>
+            {% endfor %}
+          </optgroup>
+          <optgroup label="Benchmark Evaluations (eval_*)">
+            {% for col in user_collections if col.startswith('eval_') %}
+              <option value="{{ col }}" {{ 'selected' if col == selected_collection else '' }}>{{ col }}</option>
+            {% endfor %}
+          </optgroup>
+        {% else %}
+          {% for col in user_collections %}
+            <option value="{{ col }}" {{ 'selected' if col == selected_collection else '' }}>{{ col }}</option>
+          {% endfor %}
+        {% endif %}
+      </select>
+    </form>
+
+    <!-- Refresh Inference Button -->
+    <form method="POST" action="{{ url_for('schema.refresh') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="collection" value="{{ selected_collection }}">
+      <button type="submit" class="btn btn-primary btn-sm">🔄 Re-Infer Schema</button>
+    </form>
+  </div>
+</div>
+
+{% if snapshot %}
+  <!-- Active Snapshot Metadata Panel -->
+  <div class="panel" style="margin-bottom: 1.25rem;">
+    <div class="panel-body" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; padding: 0.9rem 1.15rem; font-size: 0.8125rem;">
+      <div>
+        <span style="font-size: 0.72rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; letter-spacing: 0.04em;">Snapshot ID</span>
+        <div style="font-weight: 700; margin-top: 0.15rem;"><code class="mono-id" title="{{ snapshot.snapshot_id }}">{{ snapshot.snapshot_id }}</code></div>
+      </div>
+      <div>
+        <span style="font-size: 0.72rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; letter-spacing: 0.04em;">Deterministic Fingerprint</span>
+        <div style="margin-top: 0.15rem;"><code class="mono-id" title="{{ snapshot.schema_fingerprint }}">{{ snapshot.schema_fingerprint[:16] }}…</code></div>
+      </div>
+      <div>
+        <span style="font-size: 0.72rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; letter-spacing: 0.04em;">Analyzed Documents</span>
+        <div style="font-weight: 600; margin-top: 0.15rem;">{{ snapshot.document_count }} documents</div>
+      </div>
+      <div>
+        <span style="font-size: 0.72rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; letter-spacing: 0.04em;">Inference Timestamp</span>
+        <div style="color: var(--text-muted); margin-top: 0.15rem;">{{ snapshot.created_at[:19] | replace("T", " ") }} UTC</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Observed Field Profiles Table -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Observed Field Paths ({{ snapshot.fields | length }} unique paths)</span>
+      <span class="badge badge-muted">Collection: {{ selected_collection }}</span>
+    </div>
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Field Path</th>
+            <th>Observed Types</th>
+            <th>Presence Rate</th>
+            <th>Explicit Nulls</th>
+            <th>Missing Count</th>
+            <th>Status</th>
+            <th>Sample Values</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for path, info in snapshot.fields.items() | sort %}
+            <tr>
+              <td><code>{{ path }}</code></td>
+              <td>
+                {% for t_name, t_cnt in info.types.items() %}
+                  <span class="badge badge-muted">{{ t_name }} ({{ t_cnt }})</span>
+                {% endfor %}
+              </td>
+              <td style="white-space: nowrap;">
+                <div class="progress-bar-container">
+                  <div class="progress-bar-fill" style="width: {{ info.presence_ratio * 100 }}%;"></div>
+                </div>
+                <span style="font-weight: 600;">{{ info.presence_ratio | percentage }}</span>
+              </td>
+              <td>
+                {% if info.null_count > 0 %}
+                  <span style="color: var(--warning); font-weight: 600;">{{ info.null_count }}</span>
+                {% else %}
+                  <span style="color: var(--text-light);">0</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if info.missing_count > 0 %}
+                  <span style="color: var(--danger); font-weight: 600;">{{ info.missing_count }}</span>
+                {% else %}
+                  <span style="color: var(--text-light);">0</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if info.is_mixed_type %}
+                  <span class="badge badge-danger" title="Multiple distinct non-null types observed">Mixed Types</span>
+                {% elif info.missing_count > 0 %}
+                  <span class="badge badge-warning" title="Field is absent in some documents">Optional</span>
+                {% else %}
+                  <span class="badge badge-success" title="Present in 100% of documents">Required</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if info.samples %}
+                  <div style="font-size: 0.75rem; color: var(--text-muted); max-width: 260px; word-break: break-all; line-height: 1.4;">
+                    {% for s in info.samples %}
+                      <code>{{ s }}</code>{% if not loop.last %}, {% endif %}
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <span style="color: var(--text-light); font-size: 0.75rem;">&mdash;</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% else %}
+  <div class="panel">
+    <div class="panel-body" style="text-align: center; padding: 3rem 1rem;">
+      <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.9rem;">No schema snapshot recorded for collection <code>{{ selected_collection }}</code>.</p>
+      <form method="POST" action="{{ url_for('schema.refresh') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="collection" value="{{ selected_collection }}">
+        <button type="submit" class="btn btn-primary">Infer Initial Schema</button>
+      </form>
+    </div>
+  </div>
+{% endif %}
+
+<!-- Snapshot Comparison Tool -->
+<div class="panel">
+  <div class="panel-header">
+    <span class="panel-title">Compare Schema Snapshots</span>
+    <span style="font-size: 0.75rem; color: var(--text-muted);">{{ history | length }} snapshot(s) available</span>
+  </div>
+  <div class="panel-body">
+    {% if history | length >= 2 %}
+      <form method="GET" action="{{ url_for('schema.index') }}" style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
+        <input type="hidden" name="collection" value="{{ selected_collection }}">
+        <div style="flex: 1; min-width: 220px;">
+          <label class="form-label">Base Snapshot (Baseline A):</label>
+          <select name="snap_a" class="form-select">
+            {% for h in history %}
+              <option value="{{ h.snapshot_id }}" {{ 'selected' if h.snapshot_id == snap_a_id else '' }}>
+                {{ h.snapshot_id }} ({{ h.created_at[:19] | replace("T", " ") }}) - {{ h.document_count }} docs
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div style="flex: 1; min-width: 220px;">
+          <label class="form-label">Target Snapshot (Evolved B):</label>
+          <select name="snap_b" class="form-select">
+            {% for h in history %}
+              <option value="{{ h.snapshot_id }}" {{ 'selected' if h.snapshot_id == snap_b_id else '' }}>
+                {{ h.snapshot_id }} ({{ h.created_at[:19] | replace("T", " ") }}) - {{ h.document_count }} docs
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <button type="submit" class="btn btn-secondary">Compare Snapshots</button>
+        </div>
+      </form>
+
+      {% if comparison %}
+        <div style="margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px solid var(--border-color);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+            <h3 style="font-size: 0.95rem; font-weight: 700;">Structural Comparison Diff</h3>
+            <span class="badge {{ 'badge-success' if comparison.is_identical else 'badge-warning' }}">
+              {{ 'Identical Structural Fingerprints' if comparison.is_identical else 'Structural Evolution Detected' }}
+            </span>
+          </div>
+
+          <div class="grid-cards" style="margin-bottom: 1rem;">
+            <div class="card" style="padding: 0.75rem;">
+              <div class="card-title">Added Fields</div>
+              <div class="card-value" style="font-size: 1.25rem; color: var(--success);">{{ comparison.stats.total_added }}</div>
+            </div>
+            <div class="card" style="padding: 0.75rem;">
+              <div class="card-title">Removed Fields</div>
+              <div class="card-value" style="font-size: 1.25rem; color: var(--danger);">{{ comparison.stats.total_removed }}</div>
+            </div>
+            <div class="card" style="padding: 0.75rem;">
+              <div class="card-title">Modified Fields</div>
+              <div class="card-value" style="font-size: 1.25rem; color: var(--warning);">{{ comparison.stats.total_modified }}</div>
+            </div>
+            <div class="card" style="padding: 0.75rem;">
+              <div class="card-title">Unmodified Fields</div>
+              <div class="card-value" style="font-size: 1.25rem;">{{ comparison.stats.total_unmodified }}</div>
+            </div>
+          </div>
+
+          {% if comparison.added_fields %}
+            <div style="margin-bottom: 0.75rem;">
+              <strong style="color: var(--success); font-size: 0.85rem;">Added Fields in Target B:</strong>
+              <ul style="margin-left: 1.5rem; font-size: 0.8125rem; margin-top: 0.25rem;">
+                {% for f in comparison.added_fields %}
+                  <li><code>{{ f.path }}</code> (Observed types: {{ f.types.keys() | list | join(", ") }})</li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% endif %}
+
+          {% if comparison.removed_fields %}
+            <div style="margin-bottom: 0.75rem;">
+              <strong style="color: var(--danger); font-size: 0.85rem;">Removed Fields from Baseline A:</strong>
+              <ul style="margin-left: 1.5rem; font-size: 0.8125rem; margin-top: 0.25rem;">
+                {% for f in comparison.removed_fields %}
+                  <li><code>{{ f.path }}</code></li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% endif %}
+
+          {% if comparison.modified_fields %}
+            <div style="margin-bottom: 0.75rem;">
+              <strong style="color: var(--warning); font-size: 0.85rem;">Modified Field Profiles:</strong>
+              <ul style="margin-left: 1.5rem; font-size: 0.8125rem; margin-top: 0.25rem;">
+                {% for m in comparison.modified_fields %}
+                  <li>
+                    <code>{{ m.path }}</code>: 
+                    {% if m.has_type_change %}Types evolved from {{ m.pre_types.keys() | list }} to {{ m.post_types.keys() | list }}{% endif %}
+                    {% if m.has_ratio_change %}Presence ratio shifted from {{ m.pre_presence_ratio | percentage }} to {{ m.post_presence_ratio | percentage }}{% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% endif %}
+        </div>
+      {% endif %}
+    {% else %}
+      <div class="info-callout" style="margin: 0;">
+        <strong>Single Snapshot Baseline:</strong> Only 1 schema snapshot is currently recorded for collection <code>{{ selected_collection }}</code>. 
+        Comparative structural diffing requires at least two distinct snapshot versions. 
+        Apply a schema mutation in the <a href="{{ url_for('evolution.index', collection=selected_collection) }}">Evolution Workspace</a> or click <strong>Re-Infer Schema</strong> above to generate an updated version.
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
