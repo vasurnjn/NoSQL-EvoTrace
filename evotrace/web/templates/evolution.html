@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% set page_title = "Evolution Workspace" %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Evolution Workspace</h1>
+    <p class="page-subtitle">Configure, validate, preview dry-runs, and apply controlled schema evolution mutations.</p>
+  </div>
+</div>
+
+<div style="display: grid; grid-template-columns: minmax(340px, 1.1fr) minmax(340px, 1.2fr); gap: 1.5rem; align-items: start;">
+  <!-- Evolution Configuration Form -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Configure Transformation</span>
+    </div>
+    <div class="panel-body">
+      <form id="evolutionForm" method="POST" action="{{ url_for('evolution.apply') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <!-- Target Scope Group -->
+        <div style="background: var(--bg-card-subtle); padding: 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); margin-bottom: 1.25rem;">
+          <div style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.65rem;">
+            1. Target Scope & Operation
+          </div>
+          <div class="form-group" style="margin-bottom: 0.75rem;">
+            <label for="collectionSelect" class="form-label">Target Collection:</label>
+            <select id="collectionSelect" name="collection_name" class="form-select">
+              {% for col in user_collections %}
+                <option value="{{ col }}" {{ 'selected' if col == selected_collection else '' }}>{{ col }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0;">
+            <label for="operationTypeSelect" class="form-label">Evolution Operation:</label>
+            <select id="operationTypeSelect" name="operation_type" class="form-select">
+              <option value="rename_field" selected>Rename Field (Same scope)</option>
+              <option value="move_field">Move Field (Flat ➔ Nested or Nested ➔ Flat)</option>
+              <option value="add_field">Add Field (Default value on missing docs)</option>
+              <option value="delete_field">Delete Field (Clean path removal)</option>
+              <option value="convert_type">Convert Type (Reversible, non-lossy conversion)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Operation Guidance & Quick Fill Examples -->
+        <div style="background: var(--primary-light); border: 1px solid #bfdbfe; border-radius: var(--radius-md); padding: 0.75rem; margin-bottom: 1.25rem; font-size: 0.8rem;">
+          <div style="font-weight: 600; color: var(--primary); margin-bottom: 0.25rem;">Operation Guide:</div>
+          <div id="operationHintText" style="color: var(--text-main); line-height: 1.45;">
+            Renames an existing key within the same scope. Example: Source <code>postal_code</code> ➔ Destination <code>zip_code</code>.
+          </div>
+          <div style="margin-top: 0.5rem; display: flex; gap: 0.35rem; flex-wrap: wrap;">
+            <button type="button" class="btn btn-outline btn-sm" style="font-size: 0.75rem; padding: 0.2rem 0.5rem;" onclick="setEvolutionExample('rename_field', 'postal_code', 'zip_code')">
+              Demo: Rename postal_code ➔ zip_code
+            </button>
+            <button type="button" class="btn btn-outline btn-sm" style="font-size: 0.75rem; padding: 0.2rem 0.5rem;" onclick="setEvolutionExample('move_field', 'city', 'address.city')">
+              Demo: Move city ➔ address.city
+            </button>
+          </div>
+        </div>
+
+        <!-- Field Paths & Parameters Group -->
+        <div style="background: var(--bg-card-subtle); padding: 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); margin-bottom: 1.25rem;">
+          <div style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.65rem;">
+            2. Field Specifications
+          </div>
+
+          <!-- Source Path Group -->
+          <div id="sourcePathGroup" class="form-group">
+            <label for="sourcePathInput" class="form-label">Source Field Path:</label>
+            <input type="text" id="sourcePathInput" name="source_path" class="form-control" placeholder="e.g. postal_code, city, address.zip" value="postal_code">
+            <div class="form-text">Dot notation supported for nested subfields. Cannot be <code>_id</code>.</div>
+          </div>
+
+          <!-- Destination Path Group -->
+          <div id="destinationPathGroup" class="form-group">
+            <label for="destinationPathInput" class="form-label">Destination Field Path:</label>
+            <input type="text" id="destinationPathInput" name="destination_path" class="form-control" placeholder="e.g. zip_code, address.city" value="zip_code">
+            <div class="form-text">Dot notation supported. Creates parent structures if needed.</div>
+          </div>
+
+          <!-- Default Value Group (for add_field) -->
+          <div id="defaultValueGroup" class="form-group" style="display: none;">
+            <label for="defaultValueInput" class="form-label">Default Value & Type:</label>
+            <div style="display: flex; gap: 0.5rem;">
+              <input type="text" id="defaultValueInput" name="default_value" class="form-control" placeholder="Value to insert">
+              <select name="val_type" class="form-select" style="width: 120px;">
+                <option value="string">String</option>
+                <option value="integer">Integer</option>
+                <option value="double">Double</option>
+                <option value="boolean">Boolean</option>
+                <option value="json">JSON</option>
+              </select>
+            </div>
+            <div class="form-text">Assigned to documents where the target field does not exist.</div>
+          </div>
+
+          <!-- Target Type Group (for convert_type) -->
+          <div id="targetTypeGroup" class="form-group" style="display: none;">
+            <label for="targetTypeSelect" class="form-label">Target Safe Type:</label>
+            <select id="targetTypeSelect" name="target_type" class="form-select">
+              <option value="integer">integer (safe int parsing / non-lossy float)</option>
+              <option value="double">double (numeric parsing)</option>
+              <option value="string">string (lossless string representation)</option>
+              <option value="boolean">boolean ('true'/'false', '1'/'0')</option>
+              <option value="datetime">datetime (strict ISO 8601)</option>
+            </select>
+            <div class="form-text">Lossy or unconvertible values are flagged as conflicts without silent coercion.</div>
+          </div>
+        </div>
+
+        <!-- Authorization & Confirmation Group -->
+        <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius-md); padding: 0.85rem; margin-bottom: 1.25rem;">
+          <div style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #92400e; margin-bottom: 0.4rem;">
+            3. Execution Authorization
+          </div>
+          <label style="display: flex; gap: 0.6rem; align-items: flex-start; font-size: 0.85rem; font-weight: 600; color: #78350f; cursor: pointer;">
+            <input type="checkbox" name="confirm_execution" value="1" style="margin-top: 0.2rem;">
+            <span>I confirm that I have reviewed the planned transformation and authorize mutation of documents in the database.</span>
+          </label>
+        </div>
+
+        <!-- Action Buttons -->
+        <div style="display: flex; gap: 0.75rem;">
+          <button type="button" id="previewEvolutionBtn" class="btn btn-secondary" style="flex: 1;">
+            🔍 Preview Dry-Run
+          </button>
+          <button type="submit" class="btn btn-primary" style="flex: 1;">
+            ⚡ Apply Mutation
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Right Side: Preview Results & Protocol -->
+  <div>
+    <!-- Dry-Run Preview Results Area (AJAX-filled) -->
+    <div id="previewResultsArea" style="display: none; margin-bottom: 1.5rem;"></div>
+
+    <!-- Supported Transformation Guide -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Safety & Verification Protocol</span>
+      </div>
+      <div class="panel-body" style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+        <div style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem;">
+          <div style="background: var(--primary-light); color: var(--primary); font-weight: 700; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 0.8rem;">1</div>
+          <div>
+            <strong style="color: var(--text-main);">Collision Detection:</strong> Validates target paths. Rejects mutations that collide with existing primitive fields without silent data overwriting.
+          </div>
+        </div>
+        <div style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem;">
+          <div style="background: var(--primary-light); color: var(--primary); font-weight: 700; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 0.8rem;">2</div>
+          <div>
+            <strong style="color: var(--text-main);">Atomic / Journaled Safety:</strong> Uses MongoDB replica set transactions where supported; otherwise maintains an append-only compensating rollback journal.
+          </div>
+        </div>
+        <div style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem;">
+          <div style="background: var(--primary-light); color: var(--primary); font-weight: 700; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 0.8rem;">3</div>
+          <div>
+            <strong style="color: var(--text-main);">Fine-Grained Provenance:</strong> Automatically captures field-level before and after states and fingerprints to enable conflict-checked recovery.
+          </div>
+        </div>
+        <div style="display: flex; gap: 0.75rem;">
+          <div style="background: var(--primary-light); color: var(--primary); font-weight: 700; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 0.8rem;">4</div>
+          <div>
+            <strong style="color: var(--text-main);">Query Impact Check:</strong> Cross-references modified paths against registered application queries to highlight potential breakage.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
