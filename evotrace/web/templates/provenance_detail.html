@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% set page_title = "Provenance Details - " ~ prov.operation_id %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Operation Provenance Details</h1>
+    <p class="page-subtitle">Granular document field state transitions, fingerprints, and schema-version links.</p>
+  </div>
+  <div class="header-actions">
+    {% if not prov.is_recovered %}
+      <a href="{{ url_for('recovery.index', operation_id=prov.operation_id) }}" class="btn btn-warning btn-sm">
+        ↩️ Recover Operation
+      </a>
+    {% else %}
+      <span class="badge badge-warning" style="padding: 0.4rem 0.75rem;">Already Recovered</span>
+    {% endif %}
+    <a href="{{ url_for('provenance.index') }}" class="btn btn-outline btn-sm">Back to Explorer</a>
+  </div>
+</div>
+
+<!-- Operation Summary Panel -->
+<div class="panel" style="margin-bottom: 1.5rem;">
+  <div class="panel-header">
+    <span class="panel-title">Operation Metadata: <code class="mono-id" style="max-width: 280px;" title="{{ prov.operation_id }}">{{ prov.operation_id }}</code></span>
+    <span class="badge badge-primary">{{ prov.operation_type }}</span>
+  </div>
+  <div class="panel-body">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; font-size: 0.85rem;">
+      <div>
+        <div style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; font-weight: 600;">Target Collection</div>
+        <div style="margin-top: 0.2rem; font-weight: 600;"><code>{{ prov.collection_name }}</code></div>
+      </div>
+      <div>
+        <div style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; font-weight: 600;">Execution Timestamp</div>
+        <div style="margin-top: 0.2rem;">{{ prov.timestamp[:19] | replace("T", " ") }} UTC</div>
+      </div>
+      <div>
+        <div style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; font-weight: 600;">Pre-Schema Snapshot</div>
+        <div style="margin-top: 0.2rem;"><code class="mono-id" style="max-width: 140px;" title="{{ prov.metadata.pre_schema_version_id }}">{{ prov.metadata.pre_schema_version_id or "N/A" }}</code></div>
+      </div>
+      <div>
+        <div style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; font-weight: 600;">Post-Schema Snapshot</div>
+        <div style="margin-top: 0.2rem;"><code class="mono-id" style="max-width: 140px;" title="{{ prov.metadata.post_schema_version_id }}">{{ prov.metadata.post_schema_version_id or "N/A" }}</code></div>
+      </div>
+      <div>
+        <div style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; font-weight: 600;">Mutated Documents</div>
+        <div style="margin-top: 0.2rem; font-weight: 700; color: var(--primary);">{{ prov.affected_doc_ids | length }} documents</div>
+      </div>
+      <div>
+        <div style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; font-weight: 600;">Recovery Status</div>
+        <div style="margin-top: 0.2rem;">
+          {% if prov.is_recovered %}
+            <span class="badge badge-warning">Recovered</span>
+          {% else %}
+            <span class="badge badge-success">Active / Reversible</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Granular Document Field Changes -->
+<div class="panel">
+  <div class="panel-header">
+    <span class="panel-title">Document State Transitions ({{ prov.field_changes | length }} records)</span>
+    {% if redact %}
+      <span class="badge badge-muted">Values Redacted</span>
+    {% endif %}
+  </div>
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width: 140px;">Document ID</th>
+          <th style="width: 44%;">Pre-Operation State</th>
+          <th style="width: 40px; text-align: center;"></th>
+          <th style="width: 44%;">Post-Operation State</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for change in prov.field_changes %}
+          <tr>
+            <td><code class="mono-id" title="{{ change.doc_id }}">{{ change.doc_id }}</code></td>
+            <td style="background-color: #fff1f2; font-size: 0.8rem; border-radius: var(--radius-sm); vertical-align: top;">
+              <div><strong>Exists:</strong> {{ change.pre_state.exists }} | <strong>Type:</strong> <code>{{ change.pre_state.type }}</code> | <strong>Null:</strong> {{ change.pre_state.is_null }}</div>
+              <div style="margin-top: 0.35rem;"><strong>Value:</strong> <code>{{ change.pre_state.value }}</code></div>
+              <div style="margin-top: 0.35rem; font-size: 0.75rem; color: var(--text-muted);">
+                <strong>Fingerprint:</strong> <code class="mono-id" style="max-width: 140px;" title="{{ change.pre_state.fingerprint }}">{{ change.pre_state.fingerprint }}</code>
+              </div>
+            </td>
+            <td style="text-align: center; font-weight: 700; font-size: 1.1rem; color: var(--text-muted); vertical-align: middle;">
+              ➔
+            </td>
+            <td style="background-color: #f0fdf4; font-size: 0.8rem; border-radius: var(--radius-sm); vertical-align: top;">
+              <div><strong>Exists:</strong> {{ change.post_state.exists }} | <strong>Type:</strong> <code>{{ change.post_state.type }}</code> | <strong>Null:</strong> {{ change.post_state.is_null }}</div>
+              <div style="margin-top: 0.35rem;"><strong>Value:</strong> <code>{{ change.post_state.value }}</code></div>
+              <div style="margin-top: 0.35rem; font-size: 0.75rem; color: var(--text-muted);">
+                <strong>Fingerprint:</strong> <code class="mono-id" style="max-width: 140px;" title="{{ change.post_state.fingerprint }}">{{ change.post_state.fingerprint }}</code>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

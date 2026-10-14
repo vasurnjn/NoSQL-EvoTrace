@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% set page_title = "Provenance Explorer" %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Provenance Explorer</h1>
+    <p class="page-subtitle">Inspect the append-only audit trail of schema evolutions, fine-grained state diffs, and recovery events.</p>
+  </div>
+  <div class="header-actions">
+    {% if redact %}
+      <a href="{{ url_for('provenance.index', collection=col_filter, operation_type=op_filter, doc_id=doc_filter, redact=0) }}" class="btn btn-outline btn-sm">
+        🔓 Disable Redaction
+      </a>
+    {% else %}
+      <a href="{{ url_for('provenance.index', collection=col_filter, operation_type=op_filter, doc_id=doc_filter, redact=1) }}" class="btn btn-outline btn-sm">
+        🔒 Enable Redaction
+      </a>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Filters Panel -->
+<div class="panel" style="margin-bottom: 1.25rem;">
+  <div class="panel-body" style="padding: 1rem 1.25rem;">
+    <form method="GET" action="{{ url_for('provenance.index') }}" style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end;">
+      <input type="hidden" name="redact" value="{{ '1' if redact else '0' }}">
+
+      <div style="flex: 1; min-width: 180px;">
+        <label class="form-label">Collection:</label>
+        <select name="collection" class="form-select">
+          <option value="">All Collections</option>
+          {% for c in user_collections %}
+            <option value="{{ c }}" {{ 'selected' if c == col_filter else '' }}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div style="flex: 1; min-width: 180px;">
+        <label class="form-label">Operation Type:</label>
+        <select name="operation_type" class="form-select">
+          <option value="">All Types</option>
+          <option value="rename_field" {{ 'selected' if op_filter == 'rename_field' else '' }}>rename_field</option>
+          <option value="move_field" {{ 'selected' if op_filter == 'move_field' else '' }}>move_field</option>
+          <option value="add_field" {{ 'selected' if op_filter == 'add_field' else '' }}>add_field</option>
+          <option value="delete_field" {{ 'selected' if op_filter == 'delete_field' else '' }}>delete_field</option>
+          <option value="convert_type" {{ 'selected' if op_filter == 'convert_type' else '' }}>convert_type</option>
+        </select>
+      </div>
+
+      <div style="flex: 1; min-width: 180px;">
+        <label class="form-label">Filter Document ID:</label>
+        <input type="text" name="doc_id" class="form-control" placeholder="Search by _id" value="{{ doc_filter or '' }}">
+      </div>
+
+      <div style="display: flex; gap: 0.5rem;">
+        <button type="submit" class="btn btn-primary">Apply Filters</button>
+        {% if col_filter or op_filter or doc_filter %}
+          <a href="{{ url_for('provenance.index', redact=('1' if redact else '0')) }}" class="btn btn-outline">Clear</a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Provenance Records Table -->
+<div class="panel">
+  <div class="panel-header">
+    <span class="panel-title">Recorded Provenance Events ({{ records | length }} found)</span>
+  </div>
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Event Class</th>
+          <th>Provenance ID</th>
+          <th>Operation ID</th>
+          <th>Type</th>
+          <th>Collection</th>
+          <th>Path Mutation</th>
+          <th>Affected Docs</th>
+          <th>Timestamp</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if records %}
+          {% for r in records %}
+            <tr>
+              <td>
+                {% if r.is_recovery %}
+                  <span class="badge badge-warning">Recovery</span>
+                {% else %}
+                  <span class="badge badge-success">Evolution</span>
+                {% endif %}
+              </td>
+              <td><code class="mono-id" title="{{ r.provenance_id }}">{{ r.provenance_id }}</code></td>
+              <td><code class="mono-id" title="{{ r.operation_id }}">{{ r.operation_id }}</code></td>
+              <td>
+                <span class="badge badge-primary">{{ r.operation_type }}</span>
+              </td>
+              <td><code>{{ r.collection_name }}</code></td>
+              <td>
+                {% if r.source_path and r.destination_path %}
+                  <code>{{ r.source_path }}</code> ➔ <code>{{ r.destination_path }}</code>
+                {% elif r.source_path %}
+                  <code>{{ r.source_path }}</code>
+                {% elif r.destination_path %}
+                  <code>{{ r.destination_path }}</code>
+                {% else %}
+                  <span style="color: var(--text-muted);">&mdash;</span>
+                {% endif %}
+              </td>
+              <td style="white-space: nowrap;"><strong>{{ r.affected_doc_ids | length }}</strong> docs</td>
+              <td style="white-space: nowrap;">{{ r.timestamp[:19] | replace("T", " ") }}</td>
+              <td style="white-space: nowrap;">
+                {% if not r.is_recovery %}
+                  <a href="{{ url_for('provenance.detail', operation_id=r.operation_id, redact=('1' if redact else '0')) }}" class="btn btn-outline btn-sm">Inspect</a>
+                {% else %}
+                  <span class="badge badge-muted">Audit Record</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 2.5rem;">
+              No provenance records match the selected filter criteria.
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
