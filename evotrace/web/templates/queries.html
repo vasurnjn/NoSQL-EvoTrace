@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% set page_title = "Query Registry" %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Application Query Registry</h1>
+    <p class="page-subtitle">Catalog declarative MongoDB queries and declared field dependencies for transparent schema impact analysis.</p>
+  </div>
+  <div class="header-actions">
+    <!-- Collection Selector -->
+    <form method="GET" action="{{ url_for('queries.index') }}" style="display: inline-flex; gap: 0.5rem; align-items: center;">
+      <select name="collection" class="form-select" onchange="this.form.submit()" style="width: auto;">
+        {% for col in user_collections %}
+          <option value="{{ col }}" {{ 'selected' if col == selected_collection else '' }}>{{ col }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  </div>
+</div>
+
+<div style="display: grid; grid-template-columns: minmax(320px, 1.1fr) minmax(360px, 1.5fr); gap: 1.5rem; align-items: start;">
+  <!-- Register New Query Panel -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Register Application Query</span>
+    </div>
+    <div class="panel-body">
+      <form method="POST" action="{{ url_for('queries.add') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <div class="form-group">
+          <label class="form-label">Target Collection:</label>
+          <select name="collection_name" class="form-select">
+            {% for col in user_collections %}
+              <option value="{{ col }}" {{ 'selected' if col == selected_collection else '' }}>{{ col }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Query Name:</label>
+          <input type="text" name="name" class="form-control" placeholder="e.g. Active Customers in Boston" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Description:</label>
+          <input type="text" name="description" class="form-control" placeholder="Purpose in application business logic">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Declarative Filter (JSON):</label>
+          <textarea name="filter_spec" class="form-control" rows="4" style="font-family: var(--font-mono); font-size: 0.85rem;" placeholder='{"status": "active", "city": "Boston"}' required></textarea>
+          <div class="form-text">Restricted declarative MongoDB query syntax. Arbitrary JS / <code>$where</code> is disallowed.</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Referenced Field Paths (comma-separated):</label>
+          <input type="text" name="referenced_paths" class="form-control" placeholder="e.g. status, city, address.state">
+          <div class="form-text">Declared dependencies. If omitted, paths are automatically inferred from filter keys.</div>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%;">
+          ➕ Register Query
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Catalog of Registered Queries -->
+  <div>
+    {% if test_result %}
+      <div class="panel" style="border-left: 4px solid var(--primary); margin-bottom: 1.5rem;">
+        <div class="panel-header">
+          <span class="panel-title">Empirical Query Test Execution</span>
+          <span class="badge badge-success">Executed Successfully</span>
+        </div>
+        <div class="panel-body" style="font-size: 0.85rem;">
+          <div><strong>Query:</strong> {{ test_result.name }} (<code class="mono-id" style="max-width: 140px;" title="{{ test_result.query_id }}">{{ test_result.query_id }}</code>)</div>
+          <div style="margin-top: 0.35rem;"><strong>Matching Documents Found:</strong> <strong>{{ test_result.count }}</strong> documents</div>
+          <div style="margin-top: 0.25rem;"><strong>Execution Latency:</strong> {{ test_result.execution_time_ms }} ms</div>
+          {% if test_result.sample_ids %}
+            <div style="margin-top: 0.5rem;">
+              <strong>Sample Matched Document IDs:</strong>
+              <div style="margin-top: 0.25rem;">
+                {% for sid in test_result.sample_ids %}
+                  <code class="mono-id" style="max-width: 120px;" title="{{ sid }}">{{ sid }}</code>{% if not loop.last %}, {% endif %}
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Registered Catalog for '{{ selected_collection }}' ({{ queries | length }})</span>
+      </div>
+      <div class="panel-body" style="padding: 0;">
+        {% if queries %}
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th style="min-width: 200px;">Query Details</th>
+                  <th style="min-width: 140px;">Dependencies</th>
+                  <th>Status</th>
+                  <th style="min-width: 160px;">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for q in queries %}
+                  <tr>
+                    <td>
+                      <strong>{{ q.name }}</strong>
+                      <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.35rem;">{{ q.description }}</div>
+                      <code style="font-size: 0.75rem; word-break: break-all; background: var(--bg-card-subtle); padding: 0.2rem 0.4rem; border-radius: var(--radius-sm); display: inline-block;">
+                        {{ q.filter_spec | tojson }}
+                      </code>
+                    </td>
+                    <td>
+                      {% for p in q.referenced_paths %}
+                        <span class="badge badge-muted"><code>{{ p }}</code></span>
+                      {% endfor %}
+                    </td>
+                    <td>
+                      {% if q.enabled %}
+                        <span class="badge badge-success">Enabled</span>
+                      {% else %}
+                        <span class="badge badge-muted">Disabled</span>
+                      {% endif %}
+                    </td>
+                    <td style="white-space: nowrap;">
+                      <div style="display: flex; gap: 0.35rem; align-items: center;">
+                        <!-- Test Button -->
+                        <form method="POST" action="{{ url_for('queries.test_query', query_id=q.query_id) }}" style="display: inline;">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                          <button type="submit" class="btn btn-outline btn-sm" title="Run test query on collection">▶ Test</button>
+                        </form>
+
+                        <!-- Toggle Button -->
+                        <form method="POST" action="{{ url_for('queries.toggle', query_id=q.query_id) }}" style="display: inline;">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                          <button type="submit" class="btn btn-outline btn-sm" title="Enable or disable query">
+                            {{ 'Disable' if q.enabled else 'Enable' }}
+                          </button>
+                        </form>
+
+                        <!-- Delete Button -->
+                        <form method="POST" action="{{ url_for('queries.delete_query', query_id=q.query_id) }}" onsubmit="return confirm('Remove query {{ q.name }}?');" style="display: inline;">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                          <button type="submit" class="btn btn-outline btn-sm" style="color: var(--danger); border-color: #fecaca;" title="Delete query">🗑️</button>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div style="text-align: center; padding: 2.5rem; color: var(--text-muted);">
+            No application queries registered for collection '{{ selected_collection }}'. Register a query using the form on the left.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
