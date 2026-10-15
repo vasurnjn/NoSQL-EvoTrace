@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% set page_title = "Recovery Center" %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Recovery Center</h1>
+    <p class="page-subtitle">Restore supported schema transformations using fine-grained provenance while safeguarding downstream user modifications.</p>
+  </div>
+</div>
+
+<div style="display: grid; grid-template-columns: minmax(320px, 1.1fr) minmax(360px, 1.4fr); gap: 1.5rem; align-items: start;">
+  <!-- Operations Available for Recovery -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Operations Available for Recovery</span>
+    </div>
+    <div class="panel-body" style="padding: 0;">
+      {% if executed_ops %}
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Operation ID</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for op in executed_ops %}
+                <tr style="{{ 'background-color: var(--primary-light);' if op.operation_id == selected_op_id else '' }}">
+                  <td>
+                    <code class="mono-id" style="max-width: 140px;" title="{{ op.operation_id }}">{{ op.operation_id }}</code>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem;"><code>{{ op.collection_name }}</code></div>
+                  </td>
+                  <td>
+                    <span class="badge badge-primary">{{ op.operation_type }}</span>
+                  </td>
+                  <td>
+                    {% if op.status == "RECOVERED" %}
+                      <span class="badge badge-warning">RECOVERED</span>
+                    {% else %}
+                      <span class="badge badge-success">EXECUTED</span>
+                    {% endif %}
+                  </td>
+                  <td style="white-space: nowrap;">
+                    <a href="{{ url_for('recovery.index', operation_id=op.operation_id) }}" class="btn btn-outline btn-sm">
+                      Inspect
+                    </a>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div style="text-align: center; padding: 2.5rem; color: var(--text-muted);">
+          No executed evolution operations found to recover.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Recovery Preview & Execution Panel -->
+  <div>
+    {% if preview %}
+      <div class="panel" style="border-left: 4px solid {{ 'var(--warning)' if preview.is_already_recovered else ('var(--success)' if preview.can_recover_cleanly else 'var(--danger)') }}; margin-bottom: 1.5rem;">
+        <div class="panel-header">
+          <span class="panel-title">Recovery Preview: <code class="mono-id" style="max-width: 180px;" title="{{ preview.operation_id }}">{{ preview.operation_id }}</code></span>
+          {% if preview.is_already_recovered %}
+            <span class="badge badge-warning">Already Recovered</span>
+          {% elif preview.can_recover_cleanly %}
+            <span class="badge badge-success">Clean Recovery Ready</span>
+          {% else %}
+            <span class="badge badge-danger">Conflicts Detected</span>
+          {% endif %}
+        </div>
+        <div class="panel-body">
+          <div class="grid-cards" style="margin-bottom: 1rem;">
+            <div class="card" style="padding: 0.75rem;">
+              <div class="card-title">Provenance Records</div>
+              <div class="card-value" style="font-size: 1.25rem;">{{ preview.total_documents_in_provenance }}</div>
+            </div>
+            <div class="card" style="padding: 0.75rem;">
+              <div class="card-title">Restorable Docs</div>
+              <div class="card-value" style="font-size: 1.25rem; color: var(--success);">{{ preview.restorable_count }}</div>
+            </div>
+            <div class="card" style="padding: 0.75rem;">
+              <div class="card-title">Conflict / Skipped</div>
+              <div class="card-value" style="font-size: 1.25rem; color: var(--danger);">{{ preview.conflict_count }}</div>
+            </div>
+          </div>
+
+          {% if preview.conflicts %}
+            <div class="warning-callout" style="margin-bottom: 1rem;">
+              <strong>⚠️ Downstream Conflicts Detected ({{ preview.conflict_count }}):</strong>
+              <p style="font-size: 0.8rem; margin-top: 0.25rem;">
+                The following documents were altered after this evolution ran. To avoid data loss, they will be preserved and skipped during recovery:
+              </p>
+              <ul style="margin-left: 1.25rem; margin-top: 0.35rem; font-size: 0.8rem;">
+                {% for c in preview.conflicts %}
+                  <li><code class="mono-id" style="max-width: 120px;" title="{{ c.doc_id }}">{{ c.doc_id }}</code>: {{ c.reason }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% endif %}
+
+          {% if preview.sample_restorations %}
+            <div style="margin: 1rem 0;">
+              <h4 style="font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem;">Sample Planned Inversions:</h4>
+              {% for s in preview.sample_restorations %}
+                <div class="diff-box">
+                  <div><strong>Doc ID:</strong> <code class="mono-id" style="max-width: 140px;" title="{{ s.doc_id }}">{{ s.doc_id }}</code> (Path: <code>{{ s.target_path }}</code>)</div>
+                  <div style="margin-top: 0.35rem;">
+                    <span class="diff-pre">Current: [Exists: {{ s.current_state.exists }}, Val: {{ s.current_state.value }}]</span>
+                    &nbsp;➔&nbsp;
+                    <span class="diff-post">Restored Pre-State: [Exists: {{ s.state_to_restore.exists }}, Null: {{ s.state_to_restore.is_null }}, Val: {{ s.state_to_restore.value }}]</span>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          {% if not preview.is_already_recovered %}
+            <form method="POST" action="{{ url_for('recovery.execute', operation_id=preview.operation_id) }}" style="margin-top: 1.25rem;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+              <div class="form-group" style="padding: 0.85rem; background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius-md); margin-bottom: 1rem;">
+                <label style="display: flex; gap: 0.6rem; align-items: flex-start; font-size: 0.85rem; font-weight: 600; color: #78350f; cursor: pointer;">
+                  <input type="checkbox" name="confirm_recovery" value="1" style="margin-top: 0.2rem;" required>
+                  <span>I confirm that I want to restore {{ preview.restorable_count }} compatible documents back to their recorded pre-operation state.</span>
+                </label>
+              </div>
+
+              <button type="submit" class="btn btn-warning" style="width: 100%;">
+                ↩️ Execute Safe Recovery
+              </button>
+            </form>
+          {% else %}
+            <div class="alert alert-info" style="margin-top: 1rem;">
+              {{ preview.explanation or "This operation has already been recovered. No further recovery is necessary." }}
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    {% else %}
+      <div class="panel" style="margin-bottom: 1.5rem;">
+        <div class="panel-body" style="text-align: center; padding: 3rem; color: var(--text-muted);">
+          Select an executed evolution operation from the left panel to inspect its recovery preview and conflict status.
+        </div>
+      </div>
+    {% endif %}
+
+    <!-- Historical Recovery Audit Log -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Recovery Audit Trail ({{ recovery_audits | length }})</span>
+      </div>
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Recovery Audit ID</th>
+              <th>Original Op</th>
+              <th>Collection</th>
+              <th>Restored</th>
+              <th>Conflicts</th>
+              <th>Timestamp</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if recovery_audits %}
+              {% for rec in recovery_audits %}
+                <tr>
+                  <td><code class="mono-id" style="max-width: 130px;" title="{{ rec.provenance_id }}">{{ rec.provenance_id }}</code></td>
+                  <td><code class="mono-id" style="max-width: 130px;" title="{{ rec.recovers_operation_id }}">{{ rec.recovers_operation_id }}</code></td>
+                  <td><code>{{ rec.collection_name }}</code></td>
+                  <td><span class="badge badge-success">{{ rec.metadata.restored_count }}</span></td>
+                  <td><span class="badge {{ 'badge-warning' if rec.metadata.conflict_count > 0 else 'badge-muted' }}">{{ rec.metadata.conflict_count }}</span></td>
+                  <td style="white-space: nowrap;">{{ rec.timestamp[:19] | replace("T", " ") }}</td>
+                </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                  No recovery operations executed yet.
+                </td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
