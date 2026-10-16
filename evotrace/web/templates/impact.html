@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+{% set page_title = "Impact Analysis" %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Impact Analysis</h1>
+    <p class="page-subtitle">Analyze static path dependencies and empirically verified query filter behavior across registered application queries.</p>
+  </div>
+  <div class="header-actions">
+    <a href="{{ url_for('queries.index', collection=selected_collection) }}" class="btn btn-outline btn-sm">Manage Query Registry</a>
+  </div>
+</div>
+
+<!-- Interactive Impact Evaluation Form -->
+<div class="panel" style="margin-bottom: 1.5rem;">
+  <div class="panel-header">
+    <span class="panel-title">Evaluate Impact on Collection '{{ selected_collection }}'</span>
+  </div>
+  <div class="panel-body">
+    <form method="GET" action="{{ url_for('impact.index') }}" style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end;">
+      <div style="flex: 1; min-width: 170px;">
+        <label class="form-label">Collection:</label>
+        <select name="collection" class="form-select">
+          {% for c in user_collections %}
+            <option value="{{ c }}" {{ 'selected' if c == selected_collection else '' }}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div style="flex: 1; min-width: 170px;">
+        <label class="form-label">Operation Type:</label>
+        <select name="operation_type" class="form-select">
+          <option value="rename_field" {{ 'selected' if op_type == 'rename_field' else '' }}>rename_field</option>
+          <option value="move_field" {{ 'selected' if op_type == 'move_field' else '' }}>move_field</option>
+          <option value="delete_field" {{ 'selected' if op_type == 'delete_field' else '' }}>delete_field</option>
+          <option value="add_field" {{ 'selected' if op_type == 'add_field' else '' }}>add_field</option>
+          <option value="convert_type" {{ 'selected' if op_type == 'convert_type' else '' }}>convert_type</option>
+        </select>
+      </div>
+
+      <div style="flex: 1; min-width: 170px;">
+        <label class="form-label">Source Path:</label>
+        <input type="text" name="source_path" class="form-control" placeholder="e.g. postal_code, city" value="{{ src_path or '' }}">
+      </div>
+
+      <div style="flex: 1; min-width: 170px;">
+        <label class="form-label">Destination Path:</label>
+        <input type="text" name="destination_path" class="form-control" placeholder="e.g. zip_code, address.city" value="{{ dst_path or '' }}">
+      </div>
+
+      <div style="display: flex; gap: 0.5rem;">
+        <button type="submit" class="btn btn-primary">Analyze Impact</button>
+        {% if op_type %}
+          <a href="{{ url_for('impact.index', collection=selected_collection) }}" class="btn btn-outline">Reset</a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if impact_results %}
+  <!-- Impact Summary Metrics -->
+  <div class="grid-cards" style="margin-bottom: 1.5rem;">
+    <div class="card">
+      <div class="card-title">Registered Queries Evaluated</div>
+      <div class="card-value">{{ impact_results.total_registered_queries }}</div>
+      <div class="card-hint">Cataloged for {{ selected_collection }}</div>
+    </div>
+    <div class="card">
+      <div class="card-title">High Risk Impact</div>
+      <div class="card-value" style="color: var(--danger);">
+        {{ impact_results.query_impacts | selectattr("severity", "equalto", "HIGH") | list | length }}
+      </div>
+      <div class="card-hint">Direct path destruction or alteration</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Medium Risk Impact</div>
+      <div class="card-value" style="color: var(--warning);">
+        {{ impact_results.query_impacts | selectattr("severity", "equalto", "MEDIUM") | list | length }}
+      </div>
+      <div class="card-hint">Parent or child restructuring</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Likely Unaffected</div>
+      <div class="card-value" style="color: var(--success);">
+        {{ impact_results.query_impacts | selectattr("classification", "equalto", "LIKELY_UNAFFECTED") | list | length }}
+      </div>
+      <div class="card-hint">Disjoint field paths</div>
+    </div>
+  </div>
+
+  <!-- Detailed Impact Assessment Table -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Query Predicate Dependency Analysis</span>
+    </div>
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th style="min-width: 180px;">Query Name</th>
+            <th style="min-width: 160px;">Referenced Field Paths</th>
+            <th>Classification</th>
+            <th>Severity</th>
+            <th style="min-width: 220px;">Static Rule Explanation</th>
+            <th style="min-width: 170px;">Empirical Verification</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for q in impact_results.query_impacts %}
+            <tr>
+              <td>
+                <strong>{{ q.name }}</strong>
+                <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem;">{{ q.description }}</div>
+              </td>
+              <td>
+                {% for p in q.referenced_paths %}
+                  <span class="badge badge-muted"><code>{{ p }}</code></span>
+                {% endfor %}
+              </td>
+              <td>
+                {% if q.classification == "POTENTIALLY_AFFECTED" %}
+                  <span class="badge badge-danger">POTENTIALLY AFFECTED</span>
+                {% elif q.classification == "LIKELY_UNAFFECTED" %}
+                  <span class="badge badge-success">LIKELY UNAFFECTED</span>
+                {% else %}
+                  <span class="badge badge-warning">MANUAL REVIEW</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if q.severity == "HIGH" %}
+                  <span class="badge badge-danger">HIGH</span>
+                {% elif q.severity == "MEDIUM" %}
+                  <span class="badge badge-warning">MEDIUM</span>
+                {% else %}
+                  <span class="badge badge-muted">NONE</span>
+                {% endif %}
+              </td>
+              <td style="font-size: 0.8rem; line-height: 1.45;">
+                {{ q.explanation }}
+              </td>
+              <td style="font-size: 0.8rem;">
+                {% if q.count_after is not none %}
+                  <div>Matching: <strong>{{ q.count_after }}</strong> docs</div>
+                  <div style="color: var(--text-muted); font-size: 0.75rem; margin-top: 0.2rem;">{{ q.empirical_note }}</div>
+                {% else %}
+                  <span style="color: var(--text-light);">&mdash;</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% else %}
+  <!-- Informative Initial State with 1-Click Quick Demo -->
+  <div style="display: grid; grid-template-columns: minmax(320px, 1.2fr) minmax(300px, 1fr); gap: 1.5rem; align-items: start;">
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Quick Demo Scenarios</span>
+      </div>
+      <div class="panel-body">
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+          Select a sample scenario below to immediately evaluate impact on registered application queries:
+        </p>
+
+        <div style="border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 0.85rem; background: var(--bg-card-subtle);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+            <strong style="font-size: 0.9rem;">Scenario 1: Rename postal_code ➔ zip_code</strong>
+            <span class="badge badge-danger">High Risk</span>
+          </div>
+          <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.65rem;">
+            Directly alters the postal code field on <code>demo_customers</code>. Queries filtering on <code>postal_code</code> will be flagged as potentially broken.
+          </div>
+          <a href="{{ url_for('impact.index', collection='demo_customers', operation_type='rename_field', source_path='postal_code', destination_path='zip_code') }}" class="btn btn-primary btn-sm">
+            ⚡ Run Demo Analysis (postal_code ➔ zip_code)
+          </a>
+        </div>
+
+        <div style="border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1rem; background: var(--bg-card-subtle);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+            <strong style="font-size: 0.9rem;">Scenario 2: Move city ➔ address.city</strong>
+            <span class="badge badge-warning">Medium Risk</span>
+          </div>
+          <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.65rem;">
+            Restructures the flat <code>city</code> field into a nested object <code>address.city</code> on <code>demo_customers</code>.
+          </div>
+          <a href="{{ url_for('impact.index', collection='demo_customers', operation_type='move_field', source_path='city', destination_path='address.city') }}" class="btn btn-secondary btn-sm">
+            ⚡ Run Demo Analysis (city ➔ address.city)
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Impact Methodology Guide -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Two-Tier Impact Methodology</span>
+      </div>
+      <div class="panel-body" style="font-size: 0.85rem; line-height: 1.6; color: var(--text-muted);">
+        <p>
+          <strong style="color: var(--text-main);">1. Static Dependency Intersection:</strong>
+          Extracts referenced paths from registered declarative MongoDB query filters and compares them against proposed evolution paths:
+        </p>
+        <ul style="margin: 0.4rem 0 0.85rem 1.25rem; font-size: 0.8rem;">
+          <li><span class="badge badge-danger" style="margin-right: 0.3rem;">High Risk</span> Direct field destruction or renaming (e.g. <code>postal_code</code>).</li>
+          <li><span class="badge badge-warning" style="margin-right: 0.3rem;">Medium Risk</span> Ancestor container or child sub-path restructuring.</li>
+          <li><span class="badge badge-success" style="margin-right: 0.3rem;">Likely Unaffected</span> Independent, disjoint field paths.</li>
+        </ul>
+        <p>
+          <strong style="color: var(--text-main);">2. Empirical Query Verification:</strong>
+          Executes the query filter against the current collection state to measure matching document volume, execution latency, and behavioral shifts.
+        </p>
+      </div>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}
