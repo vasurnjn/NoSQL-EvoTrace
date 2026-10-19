@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% set page_title = "Research Evaluation & Experiments" %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Research Evaluation & Reproducible Experiments</h1>
+    <p class="page-subtitle">Benchmark document impact detection, query impact classification, recovery correctness, latency, and provenance overhead.</p>
+  </div>
+  <div class="header-actions">
+    <a href="{{ url_for('experiments.export_csv') }}" class="btn btn-outline btn-sm">📥 Export CSV</a>
+    <a href="{{ url_for('experiments.export_json') }}" class="btn btn-outline btn-sm">📥 Export JSON</a>
+  </div>
+</div>
+
+<!-- Benchmark Runner Control Panel -->
+<div class="panel" style="margin-bottom: 1.5rem;">
+  <div class="panel-header">
+    <span class="panel-title">Execute Evaluation Benchmark Suite</span>
+  </div>
+  <div class="panel-body">
+    <form method="POST" action="{{ url_for('experiments.run') }}" style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      <div style="flex: 2; min-width: 220px;">
+        <label class="form-label">Dataset Sizes (comma-separated):</label>
+        <input type="text" name="sizes" class="form-control" value="100,500" placeholder="e.g. 100, 500, 1000">
+        <div class="form-text">Evaluates scenarios across each specified synthetic collection size.</div>
+      </div>
+
+      <div style="flex: 1; min-width: 130px;">
+        <label class="form-label">Random Seed:</label>
+        <input type="number" name="seed" class="form-control" value="42">
+        <div class="form-text">Reproducible generation.</div>
+      </div>
+
+      <div>
+        <button type="submit" class="btn btn-primary" onclick="this.disabled=true; this.innerText='Running Suite…'; this.form.submit();">
+          ▶ Run Evaluation Suite
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Persisted Experiment Results Table -->
+<div class="panel" style="margin-bottom: 1.5rem;">
+  <div class="panel-header">
+    <span class="panel-title">Persisted Experiment Runs ({{ results | length }})</span>
+  </div>
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="min-width: 170px;">Scenario</th>
+          <th>Size (N) & Seed</th>
+          <th>Precision</th>
+          <th>Recall</th>
+          <th>F1 Score</th>
+          <th>Query Accuracy</th>
+          <th>Recovery Correctness</th>
+          <th>Latencies (Op / Impact)</th>
+          <th>Prov Overhead</th>
+          <th>Backend</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if results %}
+          {% for r in results %}
+            {% set m = r.metrics %}
+            <tr>
+              <td>
+                <strong>{{ r.scenario_name }}</strong>
+                <div style="margin-top: 0.2rem;"><code class="mono-id" style="max-width: 130px;" title="{{ r.experiment_id }}">{{ r.experiment_id }}</code></div>
+              </td>
+              <td style="white-space: nowrap;">
+                <code>N={{ r.dataset_size }}</code>
+                <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.15rem;">Seed: {{ r.parameters.seed if r.parameters and r.parameters.seed is defined else '42' }}</div>
+              </td>
+              <td>{{ m.precision | percentage }}</td>
+              <td>{{ m.recall | percentage }}</td>
+              <td>
+                <span class="badge badge-success">{{ m.f1_score }}</span>
+              </td>
+              <td>{{ m.query_impact_accuracy | percentage }}</td>
+              <td>
+                <span class="badge {{ 'badge-success' if m.recovery_correctness == 1.0 else 'badge-warning' }}">
+                  {{ m.recovery_correctness | percentage }}
+                </span>
+              </td>
+              <td style="white-space: nowrap; font-size: 0.8rem;">
+                <div>Op: <strong>{{ m.operation_duration_ms }}</strong> ms</div>
+                <div style="color: var(--text-muted); margin-top: 0.15rem;">Impact: {{ m.impact_analysis_duration_ms }} ms</div>
+              </td>
+              <td style="white-space: nowrap; font-size: 0.8rem;">
+                <strong>{{ m.provenance_storage_bytes }}</strong> B
+                <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.15rem;">{{ m.bytes_per_affected_doc }} B/doc</div>
+              </td>
+              <td style="white-space: nowrap;">
+                {% if r.environment_info and "mock" in r.environment_info.database_backend | lower %}
+                  <span class="badge badge-warning" title="{{ r.environment_info.database_backend }}">mongomock</span>
+                {% else %}
+                  <span class="badge badge-success" title="{{ r.environment_info.database_backend if r.environment_info else 'MongoDB' }}">MongoDB Live</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="10" style="text-align: center; color: var(--text-muted); padding: 3rem;">
+              No benchmark runs recorded yet. Configure and execute the evaluation suite above to collect empirical metrics.
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Academic Evaluation Methodology & Discussion -->
+<div class="panel">
+  <div class="panel-header">
+    <span class="panel-title">Interpretation, Methodology & Limitations</span>
+  </div>
+  <div class="panel-body" style="font-size: 0.85rem; line-height: 1.6; color: var(--text-main);">
+    <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 0.5rem;">1. Ground Truth & Metrics Formulation</h3>
+    <p>
+      The synthetic benchmark generator produces controlled collections with known field distributions. 
+      <strong>Document Impact Detection</strong> compares the documents actually mutated against the synthetic ground truth count, computing true positives (TP), false positives (FP), and false negatives (FN). 
+      <strong>Query Impact Classification</strong> evaluates whether the static intersection rules correctly identify affected versus disjoint queries compared against labeled query dependencies.
+      <strong>Recovery Correctness</strong> is measured by directly comparing post-recovery documents against bit-level pre-operation ground truth captured prior to transformation.
+    </p>
+
+    <h3 style="font-size: 0.95rem; font-weight: 700; margin-top: 1rem; margin-bottom: 0.5rem;">2. Scope and Empirical Boundaries</h3>
+    <p>
+      <strong>Synthetic Data vs. Real Workloads:</strong> Experiments utilize synthetic data with controlled variance. Real-world document schemas often feature deeper nesting, polymorphic arrays, and unstructured free-text fields.
+    </p>
+    <p style="margin-top: 0.35rem;">
+      <strong>Query Registration Boundary:</strong> Impact analysis is evaluated against registered declarative queries. EvoTrace does not claim arbitrary static source code AST analysis of external Python, Java, or Node.js application codebases.
+    </p>
+    <p style="margin-top: 0.35rem;">
+      <strong>Hardware & Engine Latency:</strong> Timing metrics reflect local CPU and I/O performance. When operating against local <code>mongomock</code>, networking roundtrips are negligible compared to networked MongoDB deployments.
+    </p>
+  </div>
+</div>
+{% endblock %}
