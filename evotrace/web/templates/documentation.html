@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% set page_title = "Research Documentation" %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Research Documentation & Architecture</h1>
+    <p class="page-subtitle">Problem formulation, system components, algorithm specifications, and design boundaries.</p>
+  </div>
+</div>
+
+<div class="panel" style="margin-bottom: 1.5rem;">
+  <div class="panel-header">
+    <span class="panel-title">1. Research Problem & Positioning</span>
+  </div>
+  <div class="panel-body" style="font-size: 0.9rem; line-height: 1.7;">
+    <h3 style="font-size: 1rem; font-weight: 700; color: var(--primary); margin-bottom: 0.5rem;">
+      Research Question
+    </h3>
+    <div style="background: var(--bg-card-subtle); padding: 0.85rem 1rem; border-left: 3px solid var(--primary); border-radius: 0 var(--radius-md) var(--radius-md) 0; margin-bottom: 1rem; font-style: italic; color: var(--text-main);">
+      "Can provenance-aware modeling of document-level schema transformations help identify their impact on stored data and registered application queries while enabling safe recovery of supported transformations?"
+    </div>
+    <p>
+      Schema-flexible document databases like MongoDB empower agile application evolution by eliminating mandatory DDL migrations. 
+      However, implicit schema divergence creates significant operational challenges: document heterogeneity accumulates over time, legacy queries silently receive unexpected types or missing fields, and reverting schema mutations typically requires costly out-of-band backups.
+    </p>
+    <p style="margin-top: 0.75rem;">
+      <strong>Positioning & Boundaries:</strong> NoSQL-EvoTrace is an academic research prototype. Schema evolution, provenance logging, versioning, and database migration are individually established concepts. 
+      The contribution of this system lies in the <em>unified integration</em> of observed document-schema profiling, field-level append-only provenance, transparent query impact analysis with static and empirical checks, and conflict-checked recovery that preserves subsequent document edits.
+    </p>
+  </div>
+</div>
+
+<div class="panel" style="margin-bottom: 1.5rem;">
+  <div class="panel-header">
+    <span class="panel-title">2. Architectural Components</span>
+  </div>
+  <div class="panel-body" style="font-size: 0.9rem; line-height: 1.7;">
+    <p>The system is organized into modular packages coordinated by Flask and PyMongo:</p>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: 1rem;">
+      <div style="border: 1px solid var(--border-color); padding: 1rem; border-radius: var(--radius-md); background: var(--bg-card-subtle);">
+        <strong style="color: var(--primary);">1. Schema Analysis Engine (<code>evotrace.schema</code>)</strong>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.35rem; line-height: 1.5;">
+          Discovers hierarchical paths across collections, computes observed type distributions, distinguishes absent fields from explicit nulls, and generates deterministic SHA-256 fingerprints.
+        </p>
+      </div>
+
+      <div style="border: 1px solid var(--border-color); padding: 1rem; border-radius: var(--radius-md); background: var(--bg-card-subtle);">
+        <strong style="color: var(--primary);">2. Evolution Engine (<code>evotrace.evolution</code>)</strong>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.35rem; line-height: 1.5;">
+          Validates syntax, detects parent-child collisions, produces dry-run previews, executes transformations safely, and coordinates compensating rollbacks upon failure.
+        </p>
+      </div>
+
+      <div style="border: 1px solid var(--border-color); padding: 1rem; border-radius: var(--radius-md); background: var(--bg-card-subtle);">
+        <strong style="color: var(--primary);">3. Provenance Engine (<code>evotrace.provenance</code>)</strong>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.35rem; line-height: 1.5;">
+          Maintains an append-only log of document field state transitions, pre/post fingerprints, and schema-version links for every executed mutation.
+        </p>
+      </div>
+
+      <div style="border: 1px solid var(--border-color); padding: 1rem; border-radius: var(--radius-md); background: var(--bg-card-subtle);">
+        <strong style="color: var(--primary);">4. Impact Analyzer (<code>evotrace.impact</code>)</strong>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.35rem; line-height: 1.5;">
+          Evaluates registered application queries against modified paths using ancestor/descendant intersection rules and empirical execution deltas.
+        </p>
+      </div>
+
+      <div style="border: 1px solid var(--border-color); padding: 1rem; border-radius: var(--radius-md); background: var(--bg-card-subtle);">
+        <strong style="color: var(--primary);">5. Recovery Engine (<code>evotrace.recovery</code>)</strong>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.35rem; line-height: 1.5;">
+          Synthesizes exact inverse operations. Checks current document state against recorded post-operation fingerprints to avoid overwriting downstream edits.
+        </p>
+      </div>
+
+      <div style="border: 1px solid var(--border-color); padding: 1rem; border-radius: var(--radius-md); background: var(--bg-card-subtle);">
+        <strong style="color: var(--primary);">6. Evaluation Suite (<code>evotrace.evaluation</code>)</strong>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.35rem; line-height: 1.5;">
+          Runs reproducible experiments across configurable dataset sizes against synthetic ground truth, measuring F1, accuracy, latency, and overhead.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="panel" style="margin-bottom: 1.5rem;">
+  <div class="panel-header">
+    <span class="panel-title">3. Algorithmic Specifications</span>
+  </div>
+  <div class="panel-body" style="font-size: 0.85rem; line-height: 1.6;">
+    <h4 style="font-weight: 700; color: var(--text-main); margin-bottom: 0.5rem;">Algorithm 1: Conflict-Aware Recovery Inversion</h4>
+    <div class="diff-box" style="margin-bottom: 1.25rem;">
+      <strong>Input:</strong> Operation ID <em>OP</em>, Current Collection <em>C</em>, Provenance Record <em>P</em><br>
+      <strong>Output:</strong> Restored Documents Count, Skipped Conflict Count<br>
+      1. For each <em>doc_change</em> in <em>P.field_changes</em>:<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;a. <em>doc</em> &larr; <em>C.find_one({"_id": doc_change.doc_id})</em><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;b. If <em>doc</em> does not exist: record deletion conflict & continue<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;c. <em>curr_val, curr_exists</em> &larr; <em>get_nested_path(doc, target_path)</em><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;d. <em>curr_fp</em> &larr; <em>compute_fingerprint(curr_val, curr_exists)</em><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;e. If <em>curr_fp &ne; doc_change.post_state.fingerprint</em>:<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Record conflict & skip document (preserves downstream modifications)<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;f. Else:<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Restore exact pre-operation state (unset if absent, None if explicit null, or value)<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Append <em>doc_change.doc_id</em> to <em>restored_doc_ids</em><br>
+      2. Record append-only Recovery Provenance Event referencing <em>OP</em>
+    </div>
+
+    <h4 style="font-weight: 700; color: var(--text-main); margin-bottom: 0.5rem;">Algorithm 2: Static Query Dependency Intersection</h4>
+    <div class="diff-box">
+      <strong>Input:</strong> Proposed Operation Path <em>Target_Path</em>, Registered Query Catalog <em>Q</em><br>
+      <strong>Output:</strong> Set of Query Classifications and Severity Ratings<br>
+      1. For each query <em>q</em> in <em>Q</em>:<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;For each referenced path <em>p_q</em> in <em>q.referenced_paths</em>:<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;If <em>p_q == Target_Path</em>: Return HIGH RISK (Direct predicate path alteration)<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;If <em>IsAncestor(Target_Path, p_q)</em>: Return HIGH RISK (Parent structure modified/removed)<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;If <em>IsDescendant(Target_Path, p_q)</em>: Return MEDIUM RISK (Child attribute mutated)<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;Return LIKELY UNAFFECTED (Disjoint paths)
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header">
+    <span class="panel-title">4. Assumptions and System Limitations</span>
+  </div>
+  <div class="panel-body" style="font-size: 0.85rem; line-height: 1.6; color: var(--text-muted);">
+    <p><strong style="color: var(--text-main);">• Query Registration Model:</strong> EvoTrace inspects registered declarative MongoDB filters. It does not perform general static analysis of arbitrary host application code (e.g. dynamic SQL/BSON builders in third-party services).</p>
+    <p style="margin-top: 0.5rem;"><strong style="color: var(--text-main);">• Scope of Safe Inverses:</strong> Safe type conversion is strictly validated and limited to non-lossy conversions (e.g., integer strings, whole-number floats, ISO datetimes). Lossy coercions (e.g., float with fractional part to integer) are intentionally rejected.</p>
+    <p style="margin-top: 0.5rem;"><strong style="color: var(--text-main);">• Transaction Model:</strong> Multi-document atomic transactions require a MongoDB replica set or sharded cluster. In standalone or mock deployments, EvoTrace transparently falls back to safe operation journaling with compensating rollbacks.</p>
+  </div>
+</div>
+{% endblock %}
